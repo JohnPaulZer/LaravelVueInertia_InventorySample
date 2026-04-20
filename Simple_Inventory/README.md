@@ -212,7 +212,137 @@ php artisan route:list
 npm run build
 ```
 
-## 10) Common Problems (Quick Fix)
+## 10) Mini Tutorial: One Complete File That Connects Everything
+
+This section gives one complete controller file sample.
+That single file is the bridge between route, PostgreSQL (through model), and Inertia Vue page.
+
+### How the connection works
+
+1. Browser calls route like `GET /products` or `POST /products`
+2. Route sends request to `ProductController`
+3. Controller uses `Product` model (Eloquent)
+4. Eloquent reads/writes PostgreSQL table `products`
+5. Controller returns Inertia page `products/Index` with data
+6. Vue renders the data and submits forms back to Laravel
+
+### Small supporting setup (required)
+
+Route in `routes/web.php`:
+
+```php
+Route::resource('products', ProductController::class);
+```
+
+Model in `app/Models/Product.php`:
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Product extends Model
+{
+    protected $fillable = ['name', 'sku', 'quantity', 'price'];
+}
+```
+
+### One complete connector file: ProductController
+
+Use this as full sample in `app/Http/Controllers/ProductController.php`:
+
+```php
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Product;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
+
+class ProductController extends Controller
+{
+    public function index(): Response
+    {
+        return Inertia::render('products/Index', [
+            'products' => Product::latest()->get(),
+        ]);
+    }
+
+    public function store(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'sku' => ['required', 'string', 'max:255', 'unique:products,sku'],
+            'quantity' => ['required', 'integer', 'min:0'],
+            'price' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        Product::create($validated);
+
+        return redirect()->route('products.index')->with('success', 'Product created successfully.');
+    }
+
+    public function update(Request $request, Product $product): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'sku' => ['required', 'string', 'max:255', 'unique:products,sku,'.$product->id],
+            'quantity' => ['required', 'integer', 'min:0'],
+            'price' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $product->update($validated);
+
+        return redirect()->route('products.index')->with('success', 'Product updated successfully.');
+    }
+
+    public function destroy(Product $product): RedirectResponse
+    {
+        $product->delete();
+
+        return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
+    }
+}
+```
+
+### PostgreSQL explanation (how this actually saves data)
+
+When you submit the form:
+
+1. Vue sends `POST /products`
+2. `store()` validates input
+3. `Product::create($validated)` runs an SQL `INSERT` on PostgreSQL
+4. Row is saved into `products` table
+5. Redirect back to `products.index`
+6. `index()` runs SQL `SELECT` through Eloquent and sends fresh data to Vue
+
+Your DB connection for this flow comes from `.env`:
+
+```env
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=simple_inventory
+DB_USERNAME=inventory_user
+DB_PASSWORD=inventory_pass_123
+```
+
+### Quick check in PostgreSQL terminal
+
+Run this after creating products:
+
+```bash
+psql -U inventory_user -h 127.0.0.1 -p 5432 -d simple_inventory -c "SELECT id, name, sku, quantity, price FROM products ORDER BY id DESC;"
+```
+
+If rows show up, your Laravel -> Controller -> Model -> PostgreSQL connection is working.
+
+## 11) Common Problems (Quick Fix)
 
 ### Problem: `could not find driver`
 
